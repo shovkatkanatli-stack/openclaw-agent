@@ -5,14 +5,25 @@ echo "╔═══════════════════════�
 echo "║   🦞 OpenClaw AI Agent Setup          ║"
 echo "╚══════════════════════════════════════╝"
 
-# Get API key from env var (set in Codespace secrets)
-DEEPSEEK_KEY="${DEEPSEEK_API_KEY:-}"
+# Get key from env or fallback
+DEEPSEEK_KEY="${OPENCLAW_DEEPSEEK_KEY:-}"
+if [ -z "$DEEPSEEK_KEY" ]; then
+  # Read from secret file if exists
+  if [ -f /workspaces/openclaw-agent/.key ]; then
+    DEEPSEEK_KEY=$(cat /workspaces/openclaw-agent/.key)
+  fi
+fi
+
 if [ -z "$DEEPSEEK_KEY" ]; then
   echo ""
-  echo "⚠️  No DEEPSEEK_API_KEY found!"
-  echo "   Set it in Codespace secrets or paste below:"
+  echo "⚠️  Need DeepSeek API key!"
   echo ""
-  read -p "Paste your DeepSeek API key: " DEEPSEEK_KEY
+  echo "Quick fix: run this in terminal:"
+  echo "  echo 'export OPENCLAW_DEEPSEEK_KEY=sk-xxx' >> ~/.bashrc"
+  echo "  source ~/.bashrc"
+  echo "  bash /workspaces/openclaw-agent/setup-openclaw.sh"
+  echo ""
+  exit 1
 fi
 
 echo "[1/3] Installing OpenClaw..."
@@ -21,35 +32,36 @@ if [ ! -d openclaw ]; then
   git clone --depth 1 https://github.com/openclaw/openclaw.git 2>/dev/null
 fi
 cd openclaw
-npm install --legacy-peer-deps 2>&1 | tail -2
+npm install --legacy-peer-deps 2>&1 | tail -3
 
-# Create workspace with standard files
+# Build
+if [ ! -f dist/openclaw.mjs ]; then
+  echo "  Building..."
+  npm run build 2>&1 | tail -3 || true
+fi
+
+# Workspace
 mkdir -p /workspaces/openclaw-agent/workspace/memory
 
-# AGENTS.md
 cat > /workspaces/openclaw-agent/workspace/AGENTS.md << 'AGENTSEOF'
 # AGENTS.md
 ## Memory: memory/YYYY-MM-DD.md (daily), MEMORY.md (long-term)
 ## Rules: Direct, Persian+English, privacy first, write everything down
-## Safe: read, explore, search, code in workspace
-## Ask first: financial, external actions
+## Safe: read, explore, search, code in workspace | Ask: financial, external
 AGENTSEOF
 
-# SOUL.md
 cat > /workspaces/openclaw-agent/workspace/SOUL.md << 'SOULEOF'
 # SOUL.md
 - Speak Persian (فارسی), English terms in parentheses
 - Direct, professional, trader mindset
-- Data > opinions, logs > guesses
+- Data > opinions
 - Proactive helper for Abbas
 SOULEOF
 
-# USER.md
 cat > /workspaces/openclaw-agent/workspace/USER.md << 'USEREOF'
 # USER.md
-- Name: عباس (Abbas) | Location: Istanbul | GMT+3
-- Roles: Crypto trader, developer, server admin
-- Tools: Python, Bash, Linux, Binance, Bybit, n8n
+- Name: عباس (Abbas) | Istanbul | GMT+3
+- Roles: Crypto trader, dev, server admin
 USEREOF
 
 echo "[2/3] Configuring OpenClaw..."
@@ -86,24 +98,18 @@ CONFIGEOF
 
 echo "[3/3] Starting OpenClaw..."
 cd /tmp/openclaw
-node dist/openclaw.mjs gateway > /tmp/openclaw.log 2>&1 &
-sleep 5
 
-# Quick test
-if curl -s http://localhost:18789/ > /dev/null 2>&1; then
+if [ -f dist/openclaw.mjs ]; then
+  node dist/openclaw.mjs gateway > /tmp/openclaw.log 2>&1 &
+  sleep 5
   echo ""
   echo "╔══════════════════════════════════════╗"
-  echo "║ ✅ OpenClaw Agent IS LIVE! 🦞        ║"
-  echo "║                                      ║"
-  echo "║ 🌐 Gateway: http://localhost:18789   ║"
-  echo "║ 💬 Chat: cd /tmp/openclaw && \\       ║"
-  echo "║    node dist/openclaw.mjs chat       ║"
-  echo "║                                      ║"
-  echo "║ Your personal AI agent — ready!      ║"
+  echo "║ ✅ Agent LIVE! 🦞                     ║"
+  echo "║ Gateway: http://localhost:18789       ║"
+  echo "║ Chat: cd /tmp/openclaw && \\           ║"
+  echo "║   node dist/openclaw.mjs chat        ║"
   echo "╚══════════════════════════════════════╝"
+  tail -f /tmp/openclaw.log 2>/dev/null || sleep infinity
 else
-  echo ""
-  echo "⚠️  Gateway may need manual start:"
-  echo "   cd /tmp/openclaw"
-  echo "   node dist/openclaw.mjs gateway"
+  echo "❌ Build failed. Check logs."
 fi

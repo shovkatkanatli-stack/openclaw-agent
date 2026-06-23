@@ -15,5 +15,8 @@
       "label": "OpenClaw Gateway",
       "onAutoForward": "silent"
     }
+  },
+  "remoteEnv": {
+    "OPENCLAW_DEEPSEEK_KEY": ""
   }
 }

@@ -27,7 +27,6 @@ START_TIME = time.time()
 GROQ_MODELS = {
     "llama-70b":     "llama-3.3-70b-versatile",
     "llama-8b":      "llama-3.1-8b-instant",
-    "mixtral":       "mixtral-8x7b-32768",
     "gemma":         "gemma2-9b-it",
     "qwen":          "qwen-2.5-32b",
     "deepseek-r1":   "deepseek-r1-distill-llama-70b",
@@ -79,19 +78,26 @@ Be direct, helpful, concise."""
 
 async def try_chat(msgs):
     model = get_model()
+    fallback_model = "llama-3.3-70b-versatile"
+    models_to_try = [model] if model == fallback_model else [model, fallback_model]
+    
     last_error = "همه سرویس‌ها در دسترس نیستن"
     for p in PROVIDERS:
-        try:
-            m = model if p["name"] == "Groq" else p["model"]
-            resp = await p["client"].chat.completions.create(
-                model=m, messages=msgs, max_tokens=2048, temperature=0.7
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            err = str(e)[:100]
-            if '429' in err or 'quota' in err.lower():
-                continue
-            last_error = err
+        for m in models_to_try:
+            try:
+                actual_m = m if p["name"] == "Groq" else p["model"]
+                resp = await p["client"].chat.completions.create(
+                    model=actual_m, messages=msgs, max_tokens=2048, temperature=0.7
+                )
+                return resp.choices[0].message.content
+            except Exception as e:
+                err = str(e)[:120]
+                if '429' in err or 'quota' in err.lower():
+                    break  # try next provider
+                if 'decommissioned' in err.lower() or '404' in err or 'not found' in err.lower():
+                    continue  # try fallback model
+                last_error = err
+                break
             continue
     return f"❌ {last_error}"
 

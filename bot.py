@@ -1,37 +1,52 @@
-import os, json, asyncio, base64, subprocess
+import os, json, base64, sys, traceback
 from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Decode keys from files
-WS_DIR = Path("/workspaces/openclaw-agent")
+# Find workspace - works regardless of mount point
+WS_DIR = Path(__file__).parent.resolve()
+print(f"Workspace: {WS_DIR}")
+print(f"Files: {list(WS_DIR.glob('.*'))}")
 
 def decode_file(name):
     path = WS_DIR / name
-    if path.exists():
-        return base64.b64decode(path.read_text().strip()).decode()
-    return ""
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        return ""
+    try:
+        data = path.read_text().strip()
+        decoded = base64.b64decode(data).decode()
+        print(f"✅ Decoded {name}: {decoded[:8]}...")
+        return decoded
+    except Exception as e:
+        print(f"❌ Decode error {name}: {e}")
+        return ""
 
 DEEPSEEK_KEY = decode_file(".dk")
 BOT_TOKEN = decode_file(".bt")
 
-if not DEEPSEEK_KEY or not BOT_TOKEN:
-    print("❌ Missing keys! Check .dk and .bt files")
-    exit(1)
+if not DEEPSEEK_KEY:
+    print("❌ FATAL: No DeepSeek key. Check .dk file.")
+    sys.exit(1)
+if not BOT_TOKEN:
+    print("❌ FATAL: No Bot token. Check .bt file.")
+    sys.exit(1)
 
 client = AsyncOpenAI(api_key=DEEPSEEK_KEY, base_url="https://api.deepseek.com/v1")
 
+# Workspace for memory
 WS = WS_DIR / "workspace"
 WS.mkdir(parents=True, exist_ok=True)
 (WS / "memory").mkdir(exist_ok=True)
 
-SYSTEM_PROMPT = """You are a Persian-speaking AI agent for عباس. Rules:
-1. Speak Persian (فارسی), put English terms in parentheses like this: (Python)
-2. Be direct and professional - no fluff  
-3. You are عباس's personal assistant - crypto trader, developer, server admin
-4. Help with code, trading, server management, and everything else"""
+SYSTEM_PROMPT = """You are a Persian-speaking AI assistant, named جلیل (Jalil). Rules:
+1. Always respond in Persian (فارسی)
+2. Put English technical terms in parentheses: like (Python), (API)
+3. Be direct, professional, and helpful
+4. Your user is عباس (Abbas) from Istanbul - a crypto trader and developer
+5. Keep responses concise and actionable"""
 
 async def chat_with_ai(user_msg: str, user_id: str) -> str:
     history_file = WS / "memory" / f"chat_{user_id}.json"
@@ -46,7 +61,7 @@ async def chat_with_ai(user_msg: str, user_id: str) -> str:
         resp = await client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history,
-            max_tokens=4096,
+            max_tokens=2048,
             temperature=0.7
         )
         reply = resp.choices[0].message.content
@@ -54,78 +69,66 @@ async def chat_with_ai(user_msg: str, user_id: str) -> str:
         history_file.write_text(json.dumps(history[-40:], ensure_ascii=False, indent=2))
         return reply
     except Exception as e:
-        return f"❌ خطا: {str(e)[:200]}"
+        print(f"API error: {e}")
+        return f"❌ خطا در ارتباط با DeepSeek: {str(e)[:150]}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🦞 سلام عباس جان! من دستیار هوش مصنوعی تو هستم. هر کاری داری بگو.")
+    await update.message.reply_text("🦞 سلام عباس جان! من جلیل هستم، دستیار هوش مصنوعی تو.\n\nهر کاری داری بگو.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
     msg = update.message.text
     if not msg: return
+    
+    user = update.effective_user
+    print(f"📩 From {user.first_name}: {msg[:80]}")
+    
     await update.message.chat.send_action(action="typing")
-    reply = await chat_with_ai(msg, str(user.id))
+    
+    try:
+        reply = await chat_with_ai(msg, str(user.id))
+    except Exception as e:
+        reply = f"❌ خطا: {str(e)[:200]}"
+    
     if len(reply) > 4000:
         for i in range(0, len(reply), 4000):
             await update.message.reply_text(reply[i:i+4000])
     else:
         await update.message.reply_text(reply)
 
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🦞 **جلیل — دستیار هوش مصنوعی عباس**\n\n"
+        "/start — شروع\n"
+        "/remember <متن> — ذخیره یادداشت\n"
+        "/help — راهنما",
+        parse_mode="Markdown"
+    )
+
 async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
     if text:
         today = datetime.now().strftime("%Y-%m-%d")
         mem = WS / "memory" / f"{today}.md"
-        mem.parent.mkdir(exist_ok=True)
         with open(mem, "a") as f: f.write(f"- {text}\n")
-        await update.message.reply_text("✅ یادداشت شد.")
+        await update.message.reply_text("✅ ذخیره شد.")
     else:
         await update.message.reply_text("📝 /remember <متن>")
 
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        import psutil
-        mem = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
-        await update.message.reply_text(
-            f"📊 وضعیت:\n"
-            f"رم: {mem.percent}% | {mem.used//1024**2}/{mem.total//1024**2} MB\n"
-            f"دیسک: {disk.percent}% | {disk.free//1024**3} GB آزاد"
-        )
-    except:
-        await update.message.reply_text("📊 وضعیت: فعال ✅")
-
-async def run_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cmd = " ".join(context.args) if context.args else ""
-    if not cmd:
-        await update.message.reply_text("📝 /run <دستور>")
-        return
-    try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30, cwd=str(WS))
-        output = result.stdout[:3500] or result.stderr[:3500] or "(بدون خروجی)"
-        await update.message.reply_text(f"```\n{output}\n```", parse_mode="Markdown")
-    except Exception as e:
-        await update.message.reply_text(f"❌ {str(e)[:200]}")
-
-async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🦞 **دستیار هوش مصنوعی عباس**\n\n"
-        "/start - شروع\n"
-        "/remember <متن> - ذخیره یادداشت\n"
-        "/status - وضعیت سرور\n"
-        "/run <دستور> - اجرای دستور\n"
-        "/help - راهنما",
-        parse_mode="Markdown"
-    )
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    print(f"❌ Error: {context.error}")
+    traceback.print_exception(type(context.error), context.error, context.error.__traceback__)
 
 if __name__ == "__main__":
-    print("🦞 Starting AI Bot...")
+    print(f"🦞 Starting @jaliabibot...")
+    print(f"   Python: {sys.version.split()[0]}")
+    print(f"   DeepSeek: configured")
+    
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("remember", remember))
-    app.add_handler(CommandHandler("status", status_cmd))
-    app.add_handler(CommandHandler("run", run_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("✅ Bot running!")
-    app.run_polling()
+    app.add_error_handler(error_handler)
+    
+    print("✅ Bot is running! Go to Telegram → @jaliabibot")
+    app.run_polling(drop_pending_updates=True)

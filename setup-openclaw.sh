@@ -5,81 +5,59 @@ echo "╔═══════════════════════�
 echo "║   🦞 OpenClaw AI Agent Setup          ║"
 echo "╚══════════════════════════════════════╝"
 
-# Install OpenClaw
-echo "[1/4] Installing OpenClaw..."
+# Get API key from env var (set in Codespace secrets)
+DEEPSEEK_KEY="${DEEPSEEK_API_KEY:-}"
+if [ -z "$DEEPSEEK_KEY" ]; then
+  echo ""
+  echo "⚠️  No DEEPSEEK_API_KEY found!"
+  echo "   Set it in Codespace secrets or paste below:"
+  echo ""
+  read -p "Paste your DeepSeek API key: " DEEPSEEK_KEY
+fi
+
+echo "[1/3] Installing OpenClaw..."
 cd /tmp
-git clone https://github.com/openclaw/openclaw.git 2>/dev/null || true
+if [ ! -d openclaw ]; then
+  git clone --depth 1 https://github.com/openclaw/openclaw.git 2>/dev/null
+fi
 cd openclaw
+npm install --legacy-peer-deps 2>&1 | tail -2
 
-# Install dependencies
-npm install --legacy-peer-deps 2>&1 | tail -1
-
-# Create workspace for the agent
+# Create workspace with standard files
 mkdir -p /workspaces/openclaw-agent/workspace/memory
 
-# Create AGENTS.md
+# AGENTS.md
 cat > /workspaces/openclaw-agent/workspace/AGENTS.md << 'AGENTSEOF'
 # AGENTS.md
-
-## First Run
-Follow BOOTSTRAP.md if it exists.
-
-## Memory
-- Daily notes: memory/YYYY-MM-DD.md
-- Long-term: MEMORY.md
-
-## Red Lines
-- Don't exfiltrate private data
-- Don't run destructive commands without asking
-- trash > rm
-
-## Tools
-Skills provide your tools. Check SKILL.md when needed.
-
-## External vs Internal
-Safe: read files, explore, organize, search web, work in workspace
-Ask first: send emails, tweets, public posts, anything that leaves the machine
+## Memory: memory/YYYY-MM-DD.md (daily), MEMORY.md (long-term)
+## Rules: Direct, Persian+English, privacy first, write everything down
+## Safe: read, explore, search, code in workspace
+## Ask first: financial, external actions
 AGENTSEOF
 
-# Create SOUL.md
+# SOUL.md
 cat > /workspaces/openclaw-agent/workspace/SOUL.md << 'SOULEOF'
 # SOUL.md
-
-## Core
-- Professional, direct, helpful assistant
-- Persian + English bilingual
-- Proactive, not passive
-- Think like a developer and trader
-
-## Boundaries  
-- Privacy is absolute
-- No financial actions without approval
-- Never send incomplete work
+- Speak Persian (فارسی), English terms in parentheses
+- Direct, professional, trader mindset
+- Data > opinions, logs > guesses
+- Proactive helper for Abbas
 SOULEOF
 
-# Create USER.md
+# USER.md
 cat > /workspaces/openclaw-agent/workspace/USER.md << 'USEREOF'
 # USER.md
-
-- Name: عباس (Abbas)
-- Languages: فارسی primary, English secondary
-- Location: Istanbul, Turkey (GMT+3)
+- Name: عباس (Abbas) | Location: Istanbul | GMT+3
 - Roles: Crypto trader, developer, server admin
-- Preferences: Ubuntu/Linux, Python & Bash, free/low-cost tools
+- Tools: Python, Bash, Linux, Binance, Bybit, n8n
 USEREOF
 
-# Build OpenClaw
-echo "[2/4] Building OpenClaw..."
-pnpm build 2>&1 | tail -1 || npm run build 2>&1 | tail -1
-
-# Create config
+echo "[2/3] Configuring OpenClaw..."
 mkdir -p /root/.openclaw
-cat > /root/.openclaw/config.json << 'CONFIGEOF'
+
+cat > /root/.openclaw/openclaw.json << CONFIGEOF
 {
   "gateway": {"mode": "local"},
-  "channels": {
-    "polling": {"enabled": true, "intervalMs": 30000}
-  },
   "agents": {
     "defaults": {
       "workspace": "/workspaces/openclaw-agent/workspace",
@@ -90,13 +68,14 @@ cat > /root/.openclaw/config.json << 'CONFIGEOF'
     "providers": {
       "deepseek": {
         "baseUrl": "https://api.deepseek.com/v1",
-        "apiKey": "YOUR_DEEPSEEK_API_KEY",
+        "apiKey": "${DEEPSEEK_KEY}",
         "api": "openai-completions",
         "models": [{
           "id": "deepseek-chat",
           "name": "DeepSeek Chat",
           "contextWindow": 131072,
           "maxTokens": 8192,
+          "cost": {"input": 0.14, "output": 0.28, "cacheRead": 0.014},
           "input": ["text"]
         }]
       }
@@ -105,25 +84,26 @@ cat > /root/.openclaw/config.json << 'CONFIGEOF'
 }
 CONFIGEOF
 
-echo "[3/4] Configuration created"
-echo ""
-echo "⚠️ IMPORTANT: Add your DeepSeek API key!"
-echo "   1. Get FREE key: https://platform.deepseek.com/api_keys"
-echo "   2. Edit: /root/.openclaw/config.json"
-echo "   3. Replace YOUR_DEEPSEEK_API_KEY"
-echo ""
-
-# Start OpenClaw
-echo "[4/4] Starting OpenClaw Gateway..."
+echo "[3/3] Starting OpenClaw..."
 cd /tmp/openclaw
-node openclaw.mjs gateway > /tmp/openclaw.log 2>&1 &
-sleep 3
+node dist/openclaw.mjs gateway > /tmp/openclaw.log 2>&1 &
+sleep 5
 
-echo ""
-echo "✅ OpenClaw Agent is running!"
-echo "🌐 Gateway: http://localhost:18789"
-echo "💬 Start chatting: node openclaw.mjs chat"
-echo ""
-echo "╔══════════════════════════════════════╗"
-echo "║   🦞 Agent Ready!                      ║"
-echo "╚══════════════════════════════════════╝"
+# Quick test
+if curl -s http://localhost:18789/ > /dev/null 2>&1; then
+  echo ""
+  echo "╔══════════════════════════════════════╗"
+  echo "║ ✅ OpenClaw Agent IS LIVE! 🦞        ║"
+  echo "║                                      ║"
+  echo "║ 🌐 Gateway: http://localhost:18789   ║"
+  echo "║ 💬 Chat: cd /tmp/openclaw && \\       ║"
+  echo "║    node dist/openclaw.mjs chat       ║"
+  echo "║                                      ║"
+  echo "║ Your personal AI agent — ready!      ║"
+  echo "╚══════════════════════════════════════╝"
+else
+  echo ""
+  echo "⚠️  Gateway may need manual start:"
+  echo "   cd /tmp/openclaw"
+  echo "   node dist/openclaw.mjs gateway"
+fi

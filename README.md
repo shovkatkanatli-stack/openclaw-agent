@@ -1,24 +1,27 @@
 # 🦞 OpenClaw AI Agent on Codespaces
 
-Personal AI assistant running on GitHub Codespaces — FREE!
+Your personal AI agent, running free on GitHub Codespaces.
 
-## Quick Start
+## 🚀 Quick Start (2 steps)
 
-1. Click **Code → Codespaces → Create codespace on main**
-2. Wait 5 minutes for auto-setup
-3. Add your DeepSeek API key (free): https://platform.deepseek.com/api_keys
-4. Start chatting!
+### Step 1: Create Codespace
+Click **Code → Codespaces → Create codespace on main**
 
-## Features
-- 🤖 AI agent with tool use
-- 💻 Full terminal access inside Codespace  
-- 🗄️ File system operations
-- 🌐 Web search capability
-- 📝 Memory persistence
-- 💰 Completely FREE (Codespaces 60h/month + DeepSeek free API)
+### Step 2: Enter API Key
+When prompted, paste your **FREE** DeepSeek API key
+👉 Get one: https://platform.deepseek.com/api_keys
 
-## Configuration
-Edit `/root/.openclaw/config.json` to add your API key and customize.
+## ✨ Features
+- 🤖 Full AI agent with tool execution
+- 💻 Terminal access, file ops, git
+- 🗄️ Persistent memory across sessions  
+- 🇮🇷 Persian + English bilingual
+- 💰 100% FREE (Codespaces + DeepSeek free credits)
 
-## Workspace
-Your persistent workspace: `/workspaces/openclaw-agent/workspace/`
+## 🔒 Security
+Your API key is stored locally in the Codespace only — never in this repo.
+
+## 📊 Costs
+- Codespaces: 60h/month FREE
+- DeepSeek API: 10M tokens FREE on signup
+- After that: ~$0.14 per MILLION tokens

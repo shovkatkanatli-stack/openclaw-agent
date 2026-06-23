@@ -1,27 +1,18 @@
-# 🦞 OpenClaw AI Agent on Codespaces
+# 🦞 OpenClaw AI Agent 
 
-Your personal AI agent, running free on GitHub Codespaces.
+Your personal AI agent — chat via Telegram!
 
-## 🚀 Quick Start (2 steps)
+## Quick Start
+1. Click **Code → Codespaces → Create codespace on main**
+2. Wait 5-7 minutes
+3. Open Telegram → chat with your bot!
 
-### Step 1: Create Codespace
-Click **Code → Codespaces → Create codespace on main**
+## Features
+- 🤖 AI Agent with full tool access
+- 📱 Telegram bot interface
+- 🗄️ Persistent memory
+- 🇮🇷 Persian + English
+- 💰 100% FREE
 
-### Step 2: Enter API Key
-When prompted, paste your **FREE** DeepSeek API key
-👉 Get one: https://platform.deepseek.com/api_keys
-
-## ✨ Features
-- 🤖 Full AI agent with tool execution
-- 💻 Terminal access, file ops, git
-- 🗄️ Persistent memory across sessions  
-- 🇮🇷 Persian + English bilingual
-- 💰 100% FREE (Codespaces + DeepSeek free credits)
-
-## 🔒 Security
-Your API key is stored locally in the Codespace only — never in this repo.
-
-## 📊 Costs
-- Codespaces: 60h/month FREE
-- DeepSeek API: 10M tokens FREE on signup
-- After that: ~$0.14 per MILLION tokens
+## Configuration
+All config in `/root/.openclaw/openclaw.json`

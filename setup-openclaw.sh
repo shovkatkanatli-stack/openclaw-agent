@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-decode_key() {
-  if [ -f /workspaces/openclaw-agent/.encoded-key ]; then
-    cat /workspaces/openclaw-agent/.encoded-key | base64 -d
+decode_file() {
+  if [ -f "$1" ]; then
+    cat "$1" | base64 -d
   fi
 }
 
@@ -11,13 +11,15 @@ echo "╔═══════════════════════�
 echo "║   🦞 OpenClaw AI Agent Setup          ║"
 echo "╚══════════════════════════════════════╝"
 
-DEEPSEEK_KEY=$(decode_key)
+DEEPSEEK_KEY=$(decode_file /workspaces/openclaw-agent/.encoded-key)
+BOT_TOKEN=$(decode_file /workspaces/openclaw-agent/.encoded-bot-token)
+
 if [ -z "$DEEPSEEK_KEY" ]; then
-  echo "❌ No key found!"
+  echo "❌ No DeepSeek key!"
   exit 1
 fi
 
-echo "[1/3] Installing OpenClaw..."
+echo "[1/4] Installing OpenClaw..."
 cd /tmp
 if [ ! -d openclaw ]; then
   git clone --depth 1 https://github.com/openclaw/openclaw.git 2>/dev/null
@@ -30,39 +32,57 @@ if [ ! -f dist/openclaw.mjs ]; then
   npm run build 2>&1 | tail -2 || true
 fi
 
+# Workspace
 mkdir -p /workspaces/openclaw-agent/workspace/memory
 
 cat > /workspaces/openclaw-agent/workspace/AGENTS.md << 'AGENTSEOF'
 # AGENTS.md
-## Memory: memory/YYYY-MM-DD.md (daily), MEMORY.md (long-term)
-## Persian+English, privacy first, write everything down
+## Persian+English, privacy first, write everything to files
 AGENTSEOF
 
 cat > /workspaces/openclaw-agent/workspace/SOUL.md << 'SOULEOF'
 # SOUL.md
 - Persian (فارسی), English in parentheses
-- Direct, professional, trader mindset
-- AI agent for Abbas — crypto trader & dev
+- Direct, professional, trader+dev mindset
+- Your personal AI agent — loyal to عباس
 SOULEOF
 
 cat > /workspaces/openclaw-agent/workspace/USER.md << 'USEREOF'
-# USER.md  
-- عباس (Abbas) | Istanbul | GMT+3
-- Crypto trader, dev, server admin
-- Python, Bash, Binance, Bybit, n8n
+# USER.md
+- Name: عباس (Abbas) | Istanbul | GMT+3
+- Crypto trader, developer, server admin
 USEREOF
 
-echo "[2/3] Configuring..."
+echo "[2/4] Configuring OpenClaw..."
 mkdir -p /root/.openclaw
 
 cat > /root/.openclaw/openclaw.json << CONFIGEOF
 {
   "gateway": {"mode": "local"},
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "botToken": "${BOT_TOKEN}",
+      "dmPolicy": "open"
+    }
+  },
+  "plugins": {
+    "entries": {
+      "telegram": {"enabled": true}
+    }
+  },
   "agents": {
     "defaults": {
       "workspace": "/workspaces/openclaw-agent/workspace",
-      "model": {"primary": "deepseek/deepseek-chat"}
-    }
+      "model": {"primary": "deepseek/deepseek-chat"},
+      "heartbeat": {"every": "2h"}
+    },
+    "list": [{
+      "id": "main",
+      "name": "main",
+      "workspace": "/workspaces/openclaw-agent/workspace",
+      "default": true
+    }]
   },
   "models": {
     "providers": {
@@ -84,19 +104,31 @@ cat > /root/.openclaw/openclaw.json << CONFIGEOF
 }
 CONFIGEOF
 
-echo "[3/3] Starting OpenClaw..."
+echo "[3/4] Installing Telegram plugin deps..."
 cd /tmp/openclaw
+if [ -d extensions/telegram ]; then
+  cd extensions/telegram
+  npm install --legacy-peer-deps 2>&1 | tail -2 || true
+  cd /tmp/openclaw
+fi
 
+echo "[4/4] Starting OpenClaw with Telegram..."
 if [ -f dist/openclaw.mjs ]; then
   node dist/openclaw.mjs gateway > /tmp/openclaw.log 2>&1 &
-  sleep 5
+  sleep 6
+  
   echo ""
   echo "╔══════════════════════════════════════╗"
   echo "║ ✅ AI Agent IS LIVE! 🦞              ║"
-  echo "║ Gateway: http://localhost:18789       ║"
-  echo "║ Chat: cd /tmp/openclaw && \\           ║"
-  echo "║   node dist/openclaw.mjs chat        ║"
+  echo "║                                      ║"
+  echo "║ 🌐 Web: http://localhost:18789       ║"
+  echo "║ 📱 Telegram: @YOUR_BOT              ║"
+  echo "║                                      ║"
+  echo "║ Go to Telegram → start chatting!     ║"
   echo "╚══════════════════════════════════════╝"
+  
+  echo ""
+  echo "Agent running..."
   tail -f /tmp/openclaw.log 2>/dev/null || sleep infinity
 else
   echo "❌ Build failed"

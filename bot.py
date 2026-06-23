@@ -50,6 +50,12 @@ def set_model(choice):
     return None
 
 PROVIDERS = []
+if GEMINI_KEY:
+    PROVIDERS.append({
+        "name": "Gemini",
+        "client": AsyncOpenAI(api_key=GEMINI_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"),
+        "model": "gemini-2.0-flash"
+    })
 if GROQ_KEY:
     PROVIDERS.append({
         "name": "Groq",

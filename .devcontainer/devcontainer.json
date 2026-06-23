@@ -1,6 +1,6 @@
 {
-  "name": "AI Telegram Bot",
+  "name": "Jalil AI Bot",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postCreateCommand": "pip install -r /workspaces/openclaw-agent/requirements.txt && python /workspaces/openclaw-agent/bot.py",
+  "postCreateCommand": "bash /workspaces/openclaw-agent/start.sh",
   "hostRequirements": {"cpus": 1, "memory": "1gb"}
 }

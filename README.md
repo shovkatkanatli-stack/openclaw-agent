@@ -1,14 +1,9 @@
-# 🦞 AI Telegram Bot
+# 🦞 Jalil — AI Telegram Bot
 
-عباس's personal AI assistant on Telegram.
-
-## Start
-1. Code → Codespaces → Create
-2. Wait 2 min
-3. Go to Telegram → chat with your bot!
+عباس's Persian AI assistant. Running on OpenRouter with free models.
 
 ## Commands
-`/start` `/help` `/remember <text>` `/status` `/run <cmd>`
+`/start` `/help` `/remember <text>` `/status` `/model`
 
 ## Tech
-Python + DeepSeek API + python-telegram-bot
+Python + OpenRouter API + python-telegram-bot

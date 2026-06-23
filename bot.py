@@ -5,7 +5,7 @@ from openai import AsyncOpenAI
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-WS_DIR = Path(__file__).parent.resolve()
+WS_DIR = Path("/opt/jalil-bot")
 
 def load_keys():
     kf = WS_DIR / ".keys"
@@ -17,56 +17,36 @@ def load_keys():
     return keys
 
 keys = load_keys()
-GEMINI_KEY = keys[0] if len(keys) > 0 else ""
-GROQ_KEY = keys[1] if len(keys) > 1 else ""
-BOT_TOKEN = keys[2] if len(keys) > 2 else ""
+OR_KEY = keys[0] if len(keys) > 0 else ""
+BOT_TOKEN = keys[1] if len(keys) > 1 else ""
 
 START_TIME = time.time()
 
-# Available Groq models
-GROQ_MODELS = {
-    "llama-70b":     "llama-3.3-70b-versatile",
-    "llama-8b":      "llama-3.1-8b-instant",
-    "gemma":         "gemma2-9b-it",
-    "qwen":          "qwen-2.5-32b",
-    "deepseek-r1":   "deepseek-r1-distill-llama-70b",
-    "llama-3b":      "llama-3.2-3b-preview",
+# OpenRouter free models — short name → full model ID
+MODELS = {
+    "nemotron-120b": "nvidia/nemotron-3-super-120b-a12b:free",
+    "gpt-oss-120b":  "openai/gpt-oss-120b:free",
+    "gpt-oss-20b":   "openai/gpt-oss-20b:free",
+    "nemotron-30b":  "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nemotron-9b":   "nvidia/nemotron-nano-9b-v2:free",
+    "north-code":    "cohere/north-mini-code:free",
+    "liquid-1b":     "liquid/lfm-2.5-1.2b-instruct:free",
 }
 
-# Default model
+DEFAULT_MODEL = "nemotron-120b"
 MODEL_FILE = WS_DIR / ".model"
 
 def get_model():
     if MODEL_FILE.exists():
-        choice = MODEL_FILE.read_text().strip()
-        return GROQ_MODELS.get(choice, "llama-3.3-70b-versatile")
-    return "llama-3.3-70b-versatile"
+        name = MODEL_FILE.read_text().strip()
+        return MODELS.get(name, MODELS[DEFAULT_MODEL])
+    return MODELS[DEFAULT_MODEL]
 
-def set_model(choice):
-    if choice in GROQ_MODELS:
-        MODEL_FILE.write_text(choice)
-        return GROQ_MODELS[choice]
-    return None
-
-PROVIDERS = []
-if GEMINI_KEY:
-    PROVIDERS.append({
-        "name": "Gemini",
-        "client": AsyncOpenAI(api_key=GEMINI_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"),
-        "model": "gemini-2.0-flash"
-    })
-if GROQ_KEY:
-    PROVIDERS.append({
-        "name": "Groq",
-        "client": AsyncOpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1"),
-        "model": "dynamic"  # resolved per-request
-    })
-if GEMINI_KEY:
-    PROVIDERS.append({
-        "name": "Gemini",
-        "client": AsyncOpenAI(api_key=GEMINI_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"),
-        "model": "gemini-2.0-flash"
-    })
+client = AsyncOpenAI(
+    api_key=OR_KEY,
+    base_url="https://openrouter.ai/api/v1",
+    default_headers={"HTTP-Referer": "https://github.com/shovkatkanatli-stack"}
+)
 
 WS = WS_DIR / "workspace"
 WS.mkdir(parents=True, exist_ok=True)
@@ -76,38 +56,22 @@ SYSTEM_PROMPT = """You are جلیل (Jalil), Persian AI assistant for عباس (
 ALWAYS respond in Persian (فارسی). Put English technical terms in parentheses: (Python).
 Be direct, helpful, concise."""
 
-async def try_chat(msgs):
+async def chat(msgs):
     model = get_model()
-    fallback_model = "llama-3.3-70b-versatile"
-    models_to_try = [model] if model == fallback_model else [model, fallback_model]
-    
-    last_error = "همه سرویس‌ها در دسترس نیستن"
-    for p in PROVIDERS:
-        for m in models_to_try:
-            try:
-                actual_m = m if p["name"] == "Groq" else p["model"]
-                resp = await p["client"].chat.completions.create(
-                    model=actual_m, messages=msgs, max_tokens=2048, temperature=0.7
-                )
-                return resp.choices[0].message.content
-            except Exception as e:
-                err = str(e)[:120]
-                if '429' in err or 'quota' in err.lower():
-                    break  # try next provider
-                if 'decommissioned' in err.lower() or '404' in err or 'not found' in err.lower():
-                    continue  # try fallback model
-                last_error = err
-                break
-            continue
-    return f"❌ {last_error}"
+    try:
+        resp = await client.chat.completions.create(
+            model=model, messages=msgs, max_tokens=2048, temperature=0.7
+        )
+        return resp.choices[0].message.content
+    except Exception as e:
+        return f"❌ {str(e)[:150]}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    model = get_model()
-    mdl_name = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "llama-70b"
+    cur = [k for k,v in MODELS.items() if v == get_model()][0]
     await update.message.reply_text(
         f"🦞 سلام عباس جان! من جلیل هستم.\n"
-        f"🧠 مدل فعلی: {mdl_name}\n"
-        f"/model برای تغییر مدل\nهر کاری داری بگو."
+        f"🌐 OpenRouter | 🧠 {cur}\n"
+        f"/model برای تغییر | /status وضعیت"
     )
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,7 +85,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
     history.append({"role": "user", "content": msg})
     await update.message.chat.send_action(action="typing")
-    reply = await try_chat([{"role": "system", "content": SYSTEM_PROMPT}] + history)
+    reply = await chat([{"role": "system", "content": SYSTEM_PROMPT}] + history)
     history.append({"role": "assistant", "content": reply})
     hf.write_text(json.dumps(history[-16:], ensure_ascii=False, indent=2))
     if len(reply) > 4000:
@@ -133,22 +97,43 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     choice = context.args[0].lower() if context.args else ""
     current = get_model()
-    cur_name = [k for k,v in GROQ_MODELS.items() if v == current][0] if current in GROQ_MODELS.values() else "?"
-
+    cur_name = [k for k,v in MODELS.items() if v == current][0] if current in MODELS.values() else "?"
+    
     if not choice:
-        # Show available models
-        lines = ["🎯 **مدل‌های موجود:**\n"]
-        for key, val in GROQ_MODELS.items():
-            mark = " ⭐" if val == current else ""
+        lines = ["🎯 **مدل‌های OpenRouter:**\n"]
+        for key in MODELS:
+            mark = " ⭐" if MODELS[key] == current else ""
             lines.append(f"/model {key}{mark}")
         await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
         return
-
-    new_model = set_model(choice)
-    if new_model:
-        await update.message.reply_text(f"✅ مدل تغییر کرد: {choice}\n🗿 {new_model}")
+    
+    if choice in MODELS:
+        MODEL_FILE.write_text(choice)
+        await update.message.reply_text(f"✅ مدل: {choice}\n🗿 {MODELS[choice]}")
     else:
-        await update.message.reply_text(f"❌ مدل نامعتبر. /model برای دیدن لیست")
+        await update.message.reply_text("❌ مدل نامعتبر. /model برای لیست")
+
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uptime = time.time() - START_TIME
+    h, m = int(uptime // 3600), int((uptime % 3600) // 60)
+    cur = [k for k,v in MODELS.items() if v == get_model()][0]
+    
+    # Test API
+    try:
+        resp = await client.chat.completions.create(
+            model=get_model(), messages=[{"role": "user", "content": "."}],
+            max_tokens=1, temperature=0
+        )
+        api_status = "✅ فعال"
+    except Exception as e:
+        api_status = f"❌ {str(e)[:50]}"
+    
+    await update.message.reply_text(
+        f"🦞 **جلیل**\n"
+        f"🌐 OpenRouter | 🧠 {cur}\n"
+        f"⏱ {h}h {m}m | {api_status}",
+        parse_mode="Markdown"
+    )
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🦞 /start /help /remember /status /model")
@@ -164,40 +149,9 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("/remember <text>")
 
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uptime = time.time() - START_TIME
-    h, m = int(uptime // 3600), int((uptime % 3600) // 60)
-    model = get_model()
-    cur_name = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "?"
-
-    prov_status = []
-    for p in PROVIDERS:
-        try:
-            m = model if p["name"] == "Groq" else p["model"]
-            resp = await p["client"].chat.completions.create(
-                model=m, messages=[{"role": "user", "content": "."}], max_tokens=1, temperature=0
-            )
-            prov_status.append(f"✅ {p['name']} ({m})")
-        except Exception as e:
-            err = str(e)
-            if '429' in err or 'quota' in err.lower():
-                prov_status.append(f"⚠️ {p['name']} - محدودیت")
-            elif '403' in err:
-                prov_status.append(f"🚫 {p['name']} - مسدود")
-            else:
-                prov_status.append(f"❌ {p['name']} - {err[:40]}")
-
-    await update.message.reply_text(
-        f"🦞 **جلیل**\n"
-        f"⏱ {h}h {m}m | 🧠 {cur_name}\n\n"
-        + "\n".join(prov_status),
-        parse_mode="Markdown"
-    )
-
 if __name__ == "__main__":
-    model = get_model()
-    cur = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "default"
-    print(f"🦞 @jaliabibot | Model: {cur} ({model})")
+    cur = [k for k,v in MODELS.items() if v == get_model()][0]
+    print(f"🦞 @jaliabibot | OpenRouter | {cur}")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))

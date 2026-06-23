@@ -1,4 +1,4 @@
-import os, json, base64, sys
+import os, json, base64, sys, time
 from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
@@ -8,21 +8,20 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 WS_DIR = Path(__file__).parent.resolve()
 
 def load_keys():
-    """Load and decode keys from XOR-encoded file"""
     kf = WS_DIR / ".keys"
     if not kf.exists(): return []
-    try:
-        keys = []
-        for line in kf.read_text().strip().split('\n'):
-            d = base64.b64decode(line)
-            keys.append(bytes([b ^ 42 for b in d]).decode())
-        return keys
-    except: return []
+    keys = []
+    for line in kf.read_text().strip().split('\n'):
+        d = base64.b64decode(line)
+        keys.append(bytes([b ^ 42 for b in d]).decode())
+    return keys
 
 keys = load_keys()
 GEMINI_KEY = keys[0] if len(keys) > 0 else ""
 GROQ_KEY = keys[1] if len(keys) > 1 else ""
 BOT_TOKEN = keys[2] if len(keys) > 2 else ""
+
+START_TIME = time.time()
 
 PROVIDERS = []
 if GROQ_KEY:
@@ -42,8 +41,8 @@ WS = WS_DIR / "workspace"
 WS.mkdir(parents=True, exist_ok=True)
 (WS / "memory").mkdir(exist_ok=True)
 
-SYSTEM_PROMPT = """You are جلیل (Jalil), Persian AI assistant for عباس (Abbas) - crypto trader & dev from Istanbul.
-ALWAYS respond in Persian (فارسی). English technical terms in parentheses: (Python), (API).
+SYSTEM_PROMPT = """You are جلیل (Jalil), Persian AI assistant for عباس (Abbas) from Istanbul - crypto trader & developer.
+ALWAYS respond in Persian (فارسی). Put English technical terms in parentheses: (Python).
 Be direct, helpful, concise."""
 
 async def try_chat(msgs):
@@ -53,9 +52,14 @@ async def try_chat(msgs):
             resp = await p["client"].chat.completions.create(
                 model=p["model"], messages=msgs, max_tokens=2048, temperature=0.7
             )
-            return resp.choices[0].message.content
+            reply = resp.choices[0].message.content
+            # Mark which provider responded
+            return f"{reply}"
         except Exception as e:
-            last_error = str(e)[:120]
+            err = str(e)[:100]
+            if '429' in err or 'quota' in err.lower():
+                continue
+            last_error = err
             continue
     return f"❌ {last_error}"
 
@@ -87,7 +91,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🦞 /start /help /remember <text>", parse_mode="Markdown")
+    await update.message.reply_text("🦞 /start /help /remember /status")
 
 async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
@@ -100,12 +104,44 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("/remember <text>")
 
+async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uptime = time.time() - START_TIME
+    h, m = int(uptime // 3600), int((uptime % 3600) // 60)
+    
+    # Test each provider
+    prov_status = []
+    for p in PROVIDERS:
+        try:
+            resp = await p["client"].chat.completions.create(
+                model=p["model"],
+                messages=[{"role": "user", "content": "."}],
+                max_tokens=1,
+                temperature=0
+            )
+            prov_status.append(f"✅ {p['name']} ({p['model']})")
+        except Exception as e:
+            err = str(e)
+            if '429' in err or 'quota' in err.lower():
+                prov_status.append(f"⚠️ {p['name']} - محدودیت")
+            elif '403' in err:
+                prov_status.append(f"🚫 {p['name']} - مسدود")
+            else:
+                prov_status.append(f"❌ {p['name']} - {err[:40]}")
+    
+    await update.message.reply_text(
+        f"🦞 **جلیل**\n"
+        f"⏱ زمان: {h}h {m}m\n\n"
+        + "\n".join(prov_status),
+        parse_mode="Markdown"
+    )
+
 if __name__ == "__main__":
-    print(f"🦞 @jaliabibot with {len(PROVIDERS)} providers")
+    print(f"🦞 @jaliabibot with {len(PROVIDERS)} providers: {[p['name'] for p in PROVIDERS]}")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("remember", remember))
+    app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     print("✅ RUNNING!")
     app.run_polling(drop_pending_updates=True)

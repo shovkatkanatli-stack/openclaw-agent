@@ -23,12 +23,38 @@ BOT_TOKEN = keys[2] if len(keys) > 2 else ""
 
 START_TIME = time.time()
 
+# Available Groq models
+GROQ_MODELS = {
+    "llama-70b":     "llama-3.3-70b-versatile",
+    "llama-8b":      "llama-3.1-8b-instant",
+    "mixtral":       "mixtral-8x7b-32768",
+    "gemma":         "gemma2-9b-it",
+    "qwen":          "qwen-2.5-32b",
+    "deepseek-r1":   "deepseek-r1-distill-llama-70b",
+    "llama-3b":      "llama-3.2-3b-preview",
+}
+
+# Default model
+MODEL_FILE = WS_DIR / ".model"
+
+def get_model():
+    if MODEL_FILE.exists():
+        choice = MODEL_FILE.read_text().strip()
+        return GROQ_MODELS.get(choice, "llama-3.3-70b-versatile")
+    return "llama-3.3-70b-versatile"
+
+def set_model(choice):
+    if choice in GROQ_MODELS:
+        MODEL_FILE.write_text(choice)
+        return GROQ_MODELS[choice]
+    return None
+
 PROVIDERS = []
 if GROQ_KEY:
     PROVIDERS.append({
         "name": "Groq",
         "client": AsyncOpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1"),
-        "model": "llama-3.3-70b-versatile"
+        "model": "dynamic"  # resolved per-request
     })
 if GEMINI_KEY:
     PROVIDERS.append({
@@ -46,15 +72,15 @@ ALWAYS respond in Persian (فارسی). Put English technical terms in parenthes
 Be direct, helpful, concise."""
 
 async def try_chat(msgs):
+    model = get_model()
     last_error = "همه سرویس‌ها در دسترس نیستن"
     for p in PROVIDERS:
         try:
+            m = model if p["name"] == "Groq" else p["model"]
             resp = await p["client"].chat.completions.create(
-                model=p["model"], messages=msgs, max_tokens=2048, temperature=0.7
+                model=m, messages=msgs, max_tokens=2048, temperature=0.7
             )
-            reply = resp.choices[0].message.content
-            # Mark which provider responded
-            return f"{reply}"
+            return resp.choices[0].message.content
         except Exception as e:
             err = str(e)[:100]
             if '429' in err or 'quota' in err.lower():
@@ -64,10 +90,12 @@ async def try_chat(msgs):
     return f"❌ {last_error}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    providers = " + ".join(p["name"] for p in PROVIDERS)
+    model = get_model()
+    mdl_name = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "llama-70b"
     await update.message.reply_text(
         f"🦞 سلام عباس جان! من جلیل هستم.\n"
-        f"🧠 {providers}\nهر کاری داری بگو."
+        f"🧠 مدل فعلی: {mdl_name}\n"
+        f"/model برای تغییر مدل\nهر کاری داری بگو."
     )
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,8 +118,28 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(reply)
 
+async def model_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = context.args[0].lower() if context.args else ""
+    current = get_model()
+    cur_name = [k for k,v in GROQ_MODELS.items() if v == current][0] if current in GROQ_MODELS.values() else "?"
+
+    if not choice:
+        # Show available models
+        lines = ["🎯 **مدل‌های موجود:**\n"]
+        for key, val in GROQ_MODELS.items():
+            mark = " ⭐" if val == current else ""
+            lines.append(f"/model {key}{mark}")
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    new_model = set_model(choice)
+    if new_model:
+        await update.message.reply_text(f"✅ مدل تغییر کرد: {choice}\n🗿 {new_model}")
+    else:
+        await update.message.reply_text(f"❌ مدل نامعتبر. /model برای دیدن لیست")
+
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🦞 /start /help /remember /status")
+    await update.message.reply_text("🦞 /start /help /remember /status /model")
 
 async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
@@ -107,18 +155,17 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = time.time() - START_TIME
     h, m = int(uptime // 3600), int((uptime % 3600) // 60)
-    
-    # Test each provider
+    model = get_model()
+    cur_name = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "?"
+
     prov_status = []
     for p in PROVIDERS:
         try:
+            m = model if p["name"] == "Groq" else p["model"]
             resp = await p["client"].chat.completions.create(
-                model=p["model"],
-                messages=[{"role": "user", "content": "."}],
-                max_tokens=1,
-                temperature=0
+                model=m, messages=[{"role": "user", "content": "."}], max_tokens=1, temperature=0
             )
-            prov_status.append(f"✅ {p['name']} ({p['model']})")
+            prov_status.append(f"✅ {p['name']} ({m})")
         except Exception as e:
             err = str(e)
             if '429' in err or 'quota' in err.lower():
@@ -127,21 +174,24 @@ async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 prov_status.append(f"🚫 {p['name']} - مسدود")
             else:
                 prov_status.append(f"❌ {p['name']} - {err[:40]}")
-    
+
     await update.message.reply_text(
         f"🦞 **جلیل**\n"
-        f"⏱ زمان: {h}h {m}m\n\n"
+        f"⏱ {h}h {m}m | 🧠 {cur_name}\n\n"
         + "\n".join(prov_status),
         parse_mode="Markdown"
     )
 
 if __name__ == "__main__":
-    print(f"🦞 @jaliabibot with {len(PROVIDERS)} providers: {[p['name'] for p in PROVIDERS]}")
+    model = get_model()
+    cur = [k for k,v in GROQ_MODELS.items() if v == model][0] if model in GROQ_MODELS.values() else "default"
+    print(f"🦞 @jaliabibot | Model: {cur} ({model})")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("remember", remember))
     app.add_handler(CommandHandler("status", status_cmd))
+    app.add_handler(CommandHandler("model", model_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
     print("✅ RUNNING!")
     app.run_polling(drop_pending_updates=True)

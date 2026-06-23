@@ -1,22 +1,6 @@
 {
-  "name": "OpenClaw AI Agent",
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
-  "features": {
-    "ghcr.io/devcontainers/features/git:1": {}
-  },
-  "postCreateCommand": "bash /workspaces/openclaw-agent/setup-openclaw.sh",
-  "hostRequirements": {
-    "cpus": 2,
-    "memory": "4gb"
-  },
-  "forwardPorts": [18789],
-  "portsAttributes": {
-    "18789": {
-      "label": "OpenClaw Gateway",
-      "onAutoForward": "silent"
-    }
-  },
-  "remoteEnv": {
-    "OPENCLAW_DEEPSEEK_KEY": ""
-  }
+  "name": "AI Telegram Bot",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "postCreateCommand": "pip install python-telegram-bot openai psutil && python /workspaces/openclaw-agent/bot.py",
+  "hostRequirements": {"cpus": 1, "memory": "1gb"}
 }

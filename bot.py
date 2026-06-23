@@ -1,4 +1,4 @@
-import os, json, base64, sys, traceback
+import os, json, base64, sys
 from datetime import datetime
 from pathlib import Path
 from openai import AsyncOpenAI
@@ -7,79 +7,79 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 WS_DIR = Path(__file__).parent.resolve()
 
-def decode_file(name):
-    path = WS_DIR / name
-    if not path.exists(): return ""
+def load_keys():
+    """Load and decode keys from XOR-encoded file"""
+    kf = WS_DIR / ".keys"
+    if not kf.exists(): return []
     try:
-        data = path.read_text().strip()
-        return base64.b64decode(data).decode()
-    except Exception as e:
-        print(f"Decode error {name}: {e}")
-        return ""
+        keys = []
+        for line in kf.read_text().strip().split('\n'):
+            d = base64.b64decode(line)
+            keys.append(bytes([b ^ 42 for b in d]).decode())
+        return keys
+    except: return []
 
-GEMINI_KEY = decode_file(".dk")
-BOT_TOKEN = decode_file(".bt")
+keys = load_keys()
+GEMINI_KEY = keys[0] if len(keys) > 0 else ""
+GROQ_KEY = keys[1] if len(keys) > 1 else ""
+BOT_TOKEN = keys[2] if len(keys) > 2 else ""
 
-if not GEMINI_KEY or not BOT_TOKEN:
-    print("❌ Missing keys!")
-    sys.exit(1)
-
-# Gemini OpenAI-compatible endpoint (FREE)
-client = AsyncOpenAI(
-    api_key=GEMINI_KEY,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-)
+PROVIDERS = []
+if GROQ_KEY:
+    PROVIDERS.append({
+        "name": "Groq",
+        "client": AsyncOpenAI(api_key=GROQ_KEY, base_url="https://api.groq.com/openai/v1"),
+        "model": "llama-3.3-70b-versatile"
+    })
+if GEMINI_KEY:
+    PROVIDERS.append({
+        "name": "Gemini",
+        "client": AsyncOpenAI(api_key=GEMINI_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/"),
+        "model": "gemini-2.0-flash"
+    })
 
 WS = WS_DIR / "workspace"
 WS.mkdir(parents=True, exist_ok=True)
 (WS / "memory").mkdir(exist_ok=True)
 
-SYSTEM_PROMPT = """You are جلیل (Jalil), a Persian-speaking AI assistant. Rules:
-1. Always respond in Persian (فارسی)
-2. Put English technical terms in parentheses: (Python), (API)
-3. Be direct, professional, and helpful
-4. Your user is عباس (Abbas) - crypto trader, developer, server admin"""
+SYSTEM_PROMPT = """You are جلیل (Jalil), Persian AI assistant for عباس (Abbas) - crypto trader & dev from Istanbul.
+ALWAYS respond in Persian (فارسی). English technical terms in parentheses: (Python), (API).
+Be direct, helpful, concise."""
 
-async def chat_with_ai(user_msg: str, user_id: str) -> str:
-    history_file = WS / "memory" / f"chat_{user_id}.json"
-    history = []
-    if history_file.exists():
-        try: history = json.loads(history_file.read_text())[-15:]
-        except: pass
-    
-    history.append({"role": "user", "content": user_msg})
-    
-    try:
-        resp = await client.chat.completions.create(
-            model="gemini-2.0-flash",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + history,
-            max_tokens=2048,
-            temperature=0.7
-        )
-        reply = resp.choices[0].message.content
-        history.append({"role": "assistant", "content": reply})
-        history_file.write_text(json.dumps(history[-30:], ensure_ascii=False, indent=2))
-        return reply
-    except Exception as e:
-        return f"❌ خطا: {str(e)[:150]}"
+async def try_chat(msgs):
+    last_error = "همه سرویس‌ها در دسترس نیستن"
+    for p in PROVIDERS:
+        try:
+            resp = await p["client"].chat.completions.create(
+                model=p["model"], messages=msgs, max_tokens=2048, temperature=0.7
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            last_error = str(e)[:120]
+            continue
+    return f"❌ {last_error}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🦞 سلام عباس جان! من جلیل هستم، دستیار تو با هوش مصنوعی رایگان Google Gemini.\n\nهر کاری داری بگو.")
+    providers = " + ".join(p["name"] for p in PROVIDERS)
+    await update.message.reply_text(
+        f"🦞 سلام عباس جان! من جلیل هستم.\n"
+        f"🧠 {providers}\nهر کاری داری بگو."
+    )
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message.text
     if not msg: return
-    
-    user = update.effective_user
-    print(f"📩 {user.first_name}: {msg[:80]}")
-    
+    uid = str(update.effective_user.id)
+    hf = WS / "memory" / f"chat_{uid}.json"
+    history = []
+    if hf.exists():
+        try: history = json.loads(hf.read_text())[-8:]
+        except: pass
+    history.append({"role": "user", "content": msg})
     await update.message.chat.send_action(action="typing")
-    
-    try:
-        reply = await chat_with_ai(msg, str(user.id))
-    except Exception as e:
-        reply = f"❌ خطا: {str(e)[:200]}"
-    
+    reply = await try_chat([{"role": "system", "content": SYSTEM_PROMPT}] + history)
+    history.append({"role": "assistant", "content": reply})
+    hf.write_text(json.dumps(history[-16:], ensure_ascii=False, indent=2))
     if len(reply) > 4000:
         for i in range(0, len(reply), 4000):
             await update.message.reply_text(reply[i:i+4000])
@@ -87,39 +87,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(reply)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🦞 **جلیل — دستیار هوش مصنوعی عباس**\n\n"
-        "/start — شروع\n"
-        "/remember <متن> — ذخیره یادداشت\n"
-        "/help — راهنما\n\n"
-        "💡 با Google Gemini — کاملاً رایگان",
-        parse_mode="Markdown"
-    )
+    await update.message.reply_text("🦞 /start /help /remember <text>", parse_mode="Markdown")
 
 async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = " ".join(context.args) if context.args else ""
     if text:
         today = datetime.now().strftime("%Y-%m-%d")
         mem = WS / "memory" / f"{today}.md"
-        with open(mem, "a") as f: f.write(f"- {text}\n")
+        old = mem.read_text() if mem.exists() else ""
+        mem.write_text(old + f"- {text}\n")
         await update.message.reply_text("✅ ذخیره شد.")
     else:
-        await update.message.reply_text("📝 /remember <متن>")
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    print(f"❌ {context.error}")
+        await update.message.reply_text("/remember <text>")
 
 if __name__ == "__main__":
-    print(f"🦞 Starting @jaliabibot with Gemini...")
-    print(f"   Python: {sys.version.split()[0]}")
-    print(f"   Model: gemini-2.0-flash (FREE)")
-    
+    print(f"🦞 @jaliabibot with {len(PROVIDERS)} providers")
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("remember", remember))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_error_handler(error_handler)
-    
-    print("✅ Running! Telegram → @jaliabibot")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+    print("✅ RUNNING!")
     app.run_polling(drop_pending_updates=True)

@@ -1,6 +1,6 @@
 {
   "name": "AI Telegram Bot",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postCreateCommand": "pip install python-telegram-bot openai psutil && python /workspaces/openclaw-agent/bot.py",
+  "postCreateCommand": "pip install -r /workspaces/openclaw-agent/requirements.txt && python /workspaces/openclaw-agent/bot.py",
   "hostRequirements": {"cpus": 1, "memory": "1gb"}
 }
